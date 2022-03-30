@@ -14,31 +14,39 @@ class network_matrix():
         
 ************************************************************************************* 
     '''
-    def __init__(self,node_list=[],edge=[],edge_atts={}):
+    def __init__(self,node_list=[],edge=[],edge_atts={},node_atts={}):
         self.node_list=copy.deepcopy(node_list)
+        self.node_atts=copy.deepcopy(node_atts)
         self.edge=copy.deepcopy(edge)
         self.edge_atts=copy.deepcopy(edge_atts)
     def generate(self,network1):  #从network类转换成network_matrix类
         self.node_list=[]
         for node in network1.get_nodes():
             self.node_list.append(node.get_id())
+            for attr in node.get_atts():
+                if attr in self.node_atts:
+                    self.node_atts[attr].append(node.get_atts()[attr])
+                else:
+                    self.node_atts[attr] = [node.get_atts()[attr]]
         self.edge=np.zeros((len(self.node_list),len(self.node_list)),int)
         edge=list(network1.G.edges)[0]
         for key in network1.G[edge[0]][edge[1]]:
-            if key != 'remain_bandwidth':
+            # if key != 'remain_bandwidth':
                 self.edge_atts[key]=np.zeros((len(self.node_list),len(self.node_list)))
         for edge in network1.G.edges:
             index1=self.node_list.index(edge[0].get_id())
             index2=self.node_list.index(edge[1].get_id())
             self.edge[index1][index2]=1
             for key in network1.G[edge[0]][edge[1]]:
-                if key != 'remain_bandwidth':
+                # if key != 'remain_bandwidth':
                     self.edge_atts[key][index1][index2]=self.edge_atts[key][index2][index1]=network1.G[edge[0]][edge[1]][key]
 
     def set_node_list(self,node_list):
         self.node_list=node_list
     def get_node_list(self):
         return self.node_list
+    def get_node_atts(self,attr):
+        return self.node_atts[attr]
     
     def set_edge(self,edge):
         self.edge=edge
