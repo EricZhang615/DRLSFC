@@ -21,6 +21,7 @@ class network_matrix():
         self.edge_atts=copy.deepcopy(edge_atts)
     def generate(self,network1):  #从network类转换成network_matrix类
         self.node_list=[]
+        self.node_atts={}
         for node in network1.get_nodes():
             self.node_list.append(node.get_id())
             for attr in node.get_remain_resource():

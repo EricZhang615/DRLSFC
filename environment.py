@@ -26,13 +26,14 @@ success_reward = 1
 class NFVEnv(py_environment.PyEnvironment):
 
     def __init__(self):
+        super().__init__()
         self.network = sfcsim.cernnet2()
         self.scheduler = sfcsim.scheduler()
         self.network_matrix = sfcsim.network_matrix()
         self._node_num = self.network.get_number()
         self._node_resource_attr_num = 1
         self._sfc_index = 0
-        self._sfc_proc = self.network.sfcs[self._sfc_index]     # processing sfc
+        self._sfc_proc = self.network.sfcs.sfcs[self._sfc_index]     # processing sfc
         self._sfc_in_node = self._sfc_proc.get_in_node()
         self._sfc_out_node = self._sfc_proc.get_out_node()
         self._vnf_list = self._sfc_proc.get_nfs()       # list of vnfs in order
@@ -87,7 +88,7 @@ class NFVEnv(py_environment.PyEnvironment):
             self._node_num = self.network.get_number()
             self._node_resource_attr_num = 1
             self._sfc_index = 0
-            self._sfc_proc = self.network.sfcs[self._sfc_index]  # processing sfc
+            self._sfc_proc = self.network.sfcs.sfcs[self._sfc_index]  # processing sfc
             self._sfc_in_node = self._sfc_proc.get_in_node()
             self._sfc_out_node = self._sfc_proc.get_out_node()
             self._vnf_list = self._sfc_proc.get_nfs()  # list of vnfs in order
@@ -120,8 +121,8 @@ class NFVEnv(py_environment.PyEnvironment):
             return ts.restart(self._state)
         else:
             # 部署下一组sfc
-            self._sfc_index += 1
-            self._sfc_proc = self.network.sfcs[self._sfc_index]  # processing sfc
+            # self._sfc_index += 1
+            self._sfc_proc = self.network.sfcs.sfcs[self._sfc_index]  # processing sfc
             self._sfc_in_node = self._sfc_proc.get_in_node()
             self._sfc_out_node = self._sfc_proc.get_out_node()
             self._vnf_list = self._sfc_proc.get_nfs()  # list of vnfs in order
@@ -170,9 +171,13 @@ class NFVEnv(py_environment.PyEnvironment):
 
         path = nx.shortest_path(self.network.G, source=self._node_last, target=self._node_proc, weight='delay')
         delay = nx.shortest_path_length(self.network.G, source=self._node_last, target=self._node_proc, weight='delay')
-        if not self.scheduler.deploy_nf(self._sfc_proc, self._node_proc, self._vnf_index + 1):
+        self._sfc_delay -= delay
+        if self._sfc_delay<0.0 or not self.scheduler.deploy_nf_scale_out(self._sfc_proc, self._node_proc, self._vnf_index + 1, self._sfc_proc.get_vnf_types()):
             # nf deploy failed
-            self.scheduler.remove_sfc(self._sfc_proc, self.network)
+            if self._vnf_index !=0:
+                self.scheduler.remove_sfc(self._sfc_proc, self.network)
+            self._sfc_index += 1
+
             # ending this episode
             self._episode_ended = True
             return ts.termination(self._state, reward=fail_reward)
@@ -181,6 +186,8 @@ class NFVEnv(py_environment.PyEnvironment):
                 # link deploy failed
                 # remove sfc
                 self.scheduler.remove_sfc(self._sfc_proc, self.network)
+                self._sfc_index += 1
+
                 # ending this episode
                 self._episode_ended = True
                 return ts.termination(self._state, reward=fail_reward)
@@ -191,7 +198,6 @@ class NFVEnv(py_environment.PyEnvironment):
                     self._vnf_index += 1
                     self._vnf_proc = self._vnf_list[self._vnf_index]  # next vnf
                     self._vnf_detail = self._sfc_proc.get_nfs_detail()  # next vnf attr
-                    self._sfc_delay -= delay  # remaining delay of sfc
 
                     self.network_matrix.generate(self.network)
 
@@ -214,16 +220,18 @@ class NFVEnv(py_environment.PyEnvironment):
                                             weight='delay')
                     delay = nx.shortest_path_length(self.network.G, source=self._node_last, target=self._node_proc,
                                                     weight='delay')
-                    if not self.scheduler.deploy_link(self._sfc_proc, self._vnf_index+2, self.network, path):
+                    self._sfc_delay -= delay
+                    if self._sfc_delay<0.0 or not self.scheduler.deploy_link(self._sfc_proc, self._vnf_index+2, self.network, path):
                         # link deploy failed
                         # remove sfc
                         self.scheduler.remove_sfc(self._sfc_proc, self.network)
+                        self._sfc_index += 1
+
                         # ending this episode
                         self._episode_ended = True
                         return ts.termination(self._state, reward=fail_reward)
                     else:
                         # sfc deploy success
-                        self._sfc_delay -= delay  # remaining delay of sfc
 
                         self.network_matrix.generate(self.network)
 
@@ -232,6 +240,8 @@ class NFVEnv(py_environment.PyEnvironment):
                             np.array([np.linspace(1, 1, self._node_num)]).T)
                         self._state[5] = self._sfc_delay * np.ones([self._node_num, self._node_num])
                         self._state[6] -= 1.0
+
+                        self._sfc_index += 1
 
                         # ending this episode
                         self._episode_ended = True
