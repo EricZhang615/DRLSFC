@@ -23,11 +23,11 @@ class network_matrix():
         self.node_list=[]
         for node in network1.get_nodes():
             self.node_list.append(node.get_id())
-            for attr in node.get_atts():
+            for attr in node.get_remain_resource():
                 if attr in self.node_atts:
-                    self.node_atts[attr].append(node.get_atts()[attr])
+                    self.node_atts[attr].append(node.get_remain_resource()[attr])
                 else:
-                    self.node_atts[attr] = [node.get_atts()[attr]]
+                    self.node_atts[attr] = [node.get_remain_resource()[attr]]
         self.edge=np.zeros((len(self.node_list),len(self.node_list)),int)
         edge=list(network1.G.edges)[0]
         for key in network1.G[edge[0]][edge[1]]:

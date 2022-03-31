@@ -4,6 +4,7 @@ from __future__ import print_function
 
 import abc
 import tensorflow as tf
+import networkx as nx
 import numpy as np
 import sfcsim
 
@@ -16,7 +17,10 @@ from tf_agents.environments import wrappers
 from tf_agents.environments import suite_gym
 from tf_agents.trajectories import time_step as ts
 
+discount = 1.0
 
+fail_reward = -1
+success_reward = 1
 
 
 class NFVEnv(py_environment.PyEnvironment):
@@ -37,6 +41,9 @@ class NFVEnv(py_environment.PyEnvironment):
         self._vnf_detail = self._sfc_proc.get_nfs_detail()      # next vnf attr
         self._sfc_bw = self._sfc_proc.get_bandwidths()
         self._sfc_delay = self._sfc_proc.get_delay()        # remaining delay of sfc
+
+        self._node_last = None
+        self._node_proc = None
 
         self._action_spec = array_spec.BoundedArraySpec(
             shape=(), dtype=np.int32, minimum=1, maximum=self._node_num, name='action'
@@ -112,6 +119,7 @@ class NFVEnv(py_environment.PyEnvironment):
             self._episode_ended = False
             return ts.restart(self._state)
         else:
+            # 部署下一组sfc
             self._sfc_index += 1
             self._sfc_proc = self.network.sfcs[self._sfc_index]  # processing sfc
             self._sfc_in_node = self._sfc_proc.get_in_node()
@@ -151,13 +159,88 @@ class NFVEnv(py_environment.PyEnvironment):
             return self.reset()
 
         self.network_matrix.generate(self.network)
-        node=self.network_matrix.get_node_list()[action-1]
 
         if self._vnf_index == 0:
             # 是第一个vnf
-            if self.scheduler.deploy_nf(self._sfc_proc,node,self._vnf_index+1):
-                self.scheduler.deploy_link(self._sfc_proc,self._vnf_index+1,self.network,)
+            self._node_last = self.network.get_node(self._sfc_in_node)
+        else:
+            self._node_last = self._node_proc
 
+        self._node_proc = self.network.get_node(self.network_matrix.get_node_list()[action-1])
+
+        path = nx.shortest_path(self.network.G, source=self._node_last, target=self._node_proc, weight='delay')
+        delay = nx.shortest_path_length(self.network.G, source=self._node_last, target=self._node_proc, weight='delay')
+        if not self.scheduler.deploy_nf(self._sfc_proc, self._node_proc, self._vnf_index + 1):
+            # nf deploy failed
+            self.scheduler.remove_sfc(self._sfc_proc, self.network)
+            # ending this episode
+            self._episode_ended = True
+            return ts.termination(self._state, reward=fail_reward)
+        else:
+            if not self.scheduler.deploy_link(self._sfc_proc, self._vnf_index + 1, self.network, path):
+                # link deploy failed
+                # remove sfc
+                self.scheduler.remove_sfc(self._sfc_proc, self.network)
+                # ending this episode
+                self._episode_ended = True
+                return ts.termination(self._state, reward=fail_reward)
+            else:
+                # nf link deploy success
+                if self._vnf_index < len(self._vnf_list) - 1:
+                    # not last vnf to deploy
+                    self._vnf_index += 1
+                    self._vnf_proc = self._vnf_list[self._vnf_index]  # next vnf
+                    self._vnf_detail = self._sfc_proc.get_nfs_detail()  # next vnf attr
+                    self._sfc_delay -= delay  # remaining delay of sfc
+
+                    self.network_matrix.generate(self.network)
+
+                    self._state[0] = self.network_matrix.get_edge_att('remain_bandwidth')
+                    self._state[2] = np.array([self.network_matrix.get_node_atts('cpu')]) * (
+                        np.array([np.linspace(1, 1, self._node_num)]).T)
+                    self._state[3] = self._vnf_detail[self._vnf_proc]['cpu'] * np.ones(
+                        [self._node_num, self._node_num])
+                    self._state[4] = self._sfc_bw[self._vnf_index] * np.ones([self._node_num, self._node_num])
+                    self._state[5] = self._sfc_delay * np.ones([self._node_num, self._node_num])
+                    self._state[6] -= 1.0
+
+                    return ts.transition(self._state, reward=0.0, discount=discount)
+
+                else:
+                    # last vnf, deploy the last link
+                    self._node_last = self._node_proc
+                    self._node_proc = self.network.get_node(self._sfc_out_node)
+                    path = nx.shortest_path(self.network.G, source=self._node_last, target=self._node_proc,
+                                            weight='delay')
+                    delay = nx.shortest_path_length(self.network.G, source=self._node_last, target=self._node_proc,
+                                                    weight='delay')
+                    if not self.scheduler.deploy_link(self._sfc_proc, self._vnf_index+2, self.network, path):
+                        # link deploy failed
+                        # remove sfc
+                        self.scheduler.remove_sfc(self._sfc_proc, self.network)
+                        # ending this episode
+                        self._episode_ended = True
+                        return ts.termination(self._state, reward=fail_reward)
+                    else:
+                        # sfc deploy success
+                        self._sfc_delay -= delay  # remaining delay of sfc
+
+                        self.network_matrix.generate(self.network)
+
+                        self._state[0] = self.network_matrix.get_edge_att('remain_bandwidth')
+                        self._state[2] = np.array([self.network_matrix.get_node_atts('cpu')]) * (
+                            np.array([np.linspace(1, 1, self._node_num)]).T)
+                        self._state[5] = self._sfc_delay * np.ones([self._node_num, self._node_num])
+                        self._state[6] -= 1.0
+
+                        # ending this episode
+                        self._episode_ended = True
+                        return ts.termination(self._state, reward=success_reward)
+
+
+if __name__ == '__main__':
+    env = NFVEnv()
+    utils.validate_py_environment(env, episodes=5)
 
 
 
