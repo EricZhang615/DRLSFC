@@ -69,26 +69,25 @@ class NFVEnv(py_environment.PyEnvironment):
             shape=(), dtype=np.int32, minimum=0, maximum=self._node_num-1, name='action'
         )
         self._observation_spec = array_spec.BoundedArraySpec(
-            shape=(8+self._node_resource_attr_num, self._node_num, self._node_num), dtype=np.float32,
-            minimum=0.0, name='observation'
+            shape=(self._node_num * self._node_num + 6,), dtype=np.float32, minimum=0.0, name='observation'
         )
 
         self.network_matrix.generate(self.network)
-        in_node_s = np.zeros([self._node_num, self._node_num])
-        in_node_s[..., self.network_matrix.get_node_list().index(self._sfc_in_node):(1 + self.network_matrix.get_node_list().index(self._sfc_in_node))] = 1
-        out_node_s = np.zeros([self._node_num, self._node_num])
-        out_node_s[..., self.network_matrix.get_node_list().index(self._sfc_out_node):(1 + self.network_matrix.get_node_list().index(self._sfc_out_node))] = 1
+        b = np.array([], dtype=np.float32)
+        for i in range(self._node_num-1):
+            b = np.append(b, self.network_matrix.get_edge_att('remain_bandwidth')[i][i+1:])
+        d = np.array([], dtype=np.float32)
+        for i in range(self._node_num-1):
+            d = np.append(d, self.network_matrix.get_edge_att('delay')[i][i+1:])
+        rsc = np.array(self.network_matrix.get_node_atts('cpu'), dtype=np.float32)
 
-        self._state = np.array([self.network_matrix.get_edge_att('remain_bandwidth'),
-                                self.network_matrix.get_edge_att('delay'),
-                                np.array([self.network_matrix.get_node_atts('cpu')])*(np.array([np.linspace(1,1,self._node_num)]).T),
-                                self._vnf_detail[self._vnf_proc]['cpu']*np.ones([self._node_num, self._node_num]),
-                                self._sfc_bw[self._vnf_index]*np.ones([self._node_num, self._node_num]),
-                                self._sfc_delay*np.ones([self._node_num, self._node_num]),
-                                len(self._vnf_list)*np.ones([self._node_num, self._node_num]),
-                                in_node_s,
-                                out_node_s
-                                ], dtype=np.float32)
+        self._state = np.concatenate((b, d, rsc, np.array([self._sfc_bw[self._vnf_index]], dtype=np.float32),
+                                      np.array([self._vnf_detail[self._vnf_proc]['cpu']], dtype=np.float32),
+                                      np.array([self._sfc_delay], dtype=np.float32),
+                                      np.array([len(self._vnf_list)], dtype=np.float32),
+                                      np.array([self.network_matrix.get_node_list().index(self._sfc_in_node)+1], dtype=np.float32),
+                                      np.array([self.network_matrix.get_node_list().index(self._sfc_out_node)+1], dtype=np.float32)
+                                      ), dtype=np.float32)
         self._episode_ended = False
 
     def action_spec(self):
@@ -118,24 +117,23 @@ class NFVEnv(py_environment.PyEnvironment):
             self._sfc_delay = self._sfc_proc.get_delay()  # remaining delay of sfc
 
             self.network_matrix.generate(self.network)
-            in_node_s = np.zeros([self._node_num, self._node_num])
-            in_node_s[..., self.network_matrix.get_node_list().index(self._sfc_in_node):(
-                        1 + self.network_matrix.get_node_list().index(self._sfc_in_node))] = 1
-            out_node_s = np.zeros([self._node_num, self._node_num])
-            out_node_s[..., self.network_matrix.get_node_list().index(self._sfc_out_node):(
-                        1 + self.network_matrix.get_node_list().index(self._sfc_out_node))] = 1
+            b = np.array([], dtype=np.float32)
+            for i in range(self._node_num - 1):
+                b = np.append(b, self.network_matrix.get_edge_att('remain_bandwidth')[i][i + 1:])
+            d = np.array([], dtype=np.float32)
+            for i in range(self._node_num - 1):
+                d = np.append(d, self.network_matrix.get_edge_att('delay')[i][i + 1:])
+            rsc = np.array(self.network_matrix.get_node_atts('cpu'), dtype=np.float32)
 
-            self._state = np.array([self.network_matrix.get_edge_att('remain_bandwidth'),
-                                    self.network_matrix.get_edge_att('delay'),
-                                    np.array([self.network_matrix.get_node_atts('cpu')]) * (
-                                        np.array([np.linspace(1, 1, self._node_num)]).T),
-                                    self._vnf_detail[self._vnf_proc]['cpu'] * np.ones([self._node_num, self._node_num]),
-                                    self._sfc_bw[self._vnf_index] * np.ones([self._node_num, self._node_num]),
-                                    self._sfc_delay * np.ones([self._node_num, self._node_num]),
-                                    len(self._vnf_list) * np.ones([self._node_num, self._node_num]),
-                                    in_node_s,
-                                    out_node_s
-                                    ], dtype=np.float32)
+            self._state = np.concatenate((b, d, rsc, np.array([self._sfc_bw[self._vnf_index]], dtype=np.float32),
+                                          np.array([self._vnf_detail[self._vnf_proc]['cpu']], dtype=np.float32),
+                                          np.array([self._sfc_delay], dtype=np.float32),
+                                          np.array([len(self._vnf_list)], dtype=np.float32),
+                                          np.array([self.network_matrix.get_node_list().index(self._sfc_in_node) + 1],
+                                                   dtype=np.float32),
+                                          np.array([self.network_matrix.get_node_list().index(self._sfc_out_node) + 1],
+                                                   dtype=np.float32)
+                                          ), dtype=np.float32)
             self._episode_ended = False
             return ts.restart(self._state)
         else:
@@ -152,24 +150,24 @@ class NFVEnv(py_environment.PyEnvironment):
             self._sfc_delay = self._sfc_proc.get_delay()  # remaining delay of sfc
 
             self.network_matrix.generate(self.network)
-            in_node_s = np.zeros([self._node_num, self._node_num])
-            in_node_s[..., self.network_matrix.get_node_list().index(self._sfc_in_node):(
-                    1 + self.network_matrix.get_node_list().index(self._sfc_in_node))] = 1
-            out_node_s = np.zeros([self._node_num, self._node_num])
-            out_node_s[..., self.network_matrix.get_node_list().index(self._sfc_out_node):(
-                    1 + self.network_matrix.get_node_list().index(self._sfc_out_node))] = 1
+            b = np.array([], dtype=np.float32)
+            for i in range(self._node_num - 1):
+                b = np.append(b, self.network_matrix.get_edge_att('remain_bandwidth')[i][i + 1:])
+            d = np.array([], dtype=np.float32)
+            for i in range(self._node_num - 1):
+                d = np.append(d, self.network_matrix.get_edge_att('delay')[i][i + 1:])
+            rsc = np.array(self.network_matrix.get_node_atts('cpu'), dtype=np.float32)
 
-            self._state = np.array([self.network_matrix.get_edge_att('remain_bandwidth'),
-                                    self.network_matrix.get_edge_att('delay'),
-                                    np.array([self.network_matrix.get_node_atts('cpu')]) * (
-                                        np.array([np.linspace(1, 1, self._node_num)]).T),
-                                    self._vnf_detail[self._vnf_proc]['cpu'] * np.ones([self._node_num, self._node_num]),
-                                    self._sfc_bw[self._vnf_index] * np.ones([self._node_num, self._node_num]),
-                                    self._sfc_delay * np.ones([self._node_num, self._node_num]),
-                                    len(self._vnf_list) * np.ones([self._node_num, self._node_num]),
-                                    in_node_s,
-                                    out_node_s
-                                    ], dtype=np.float32)
+            self._state = np.concatenate((b, d, rsc, np.array([self._sfc_bw[self._vnf_index]], dtype=np.float32),
+                                          np.array([self._vnf_detail[self._vnf_proc]['cpu']], dtype=np.float32),
+                                          np.array([self._sfc_delay], dtype=np.float32),
+                                          np.array([len(self._vnf_list)], dtype=np.float32),
+                                          np.array([self.network_matrix.get_node_list().index(self._sfc_in_node) + 1],
+                                                   dtype=np.float32),
+                                          np.array([self.network_matrix.get_node_list().index(self._sfc_out_node) + 1],
+                                                   dtype=np.float32)
+                                          ), dtype=np.float32)
+
             self._episode_ended = False
             return ts.restart(self._state)
 
@@ -220,14 +218,22 @@ class NFVEnv(py_environment.PyEnvironment):
 
                     self.network_matrix.generate(self.network)
 
-                    self._state[0] = self.network_matrix.get_edge_att('remain_bandwidth')
-                    self._state[2] = np.array([self.network_matrix.get_node_atts('cpu')]) * (
-                        np.array([np.linspace(1, 1, self._node_num)]).T)
-                    self._state[3] = self._vnf_detail[self._vnf_proc]['cpu'] * np.ones(
-                        [self._node_num, self._node_num])
-                    self._state[4] = self._sfc_bw[self._vnf_index] * np.ones([self._node_num, self._node_num])
-                    self._state[5] = self._sfc_delay * np.ones([self._node_num, self._node_num])
-                    self._state[6] -= 1.0
+                    b = np.array([], dtype=np.float32)
+                    for i in range(self._node_num - 1):
+                        b = np.append(b, self.network_matrix.get_edge_att('remain_bandwidth')[i][i + 1:])
+                    d = np.array([], dtype=np.float32)
+                    for i in range(self._node_num - 1):
+                        d = np.append(d, self.network_matrix.get_edge_att('delay')[i][i + 1:])
+                    rsc = np.array(self.network_matrix.get_node_atts('cpu'), dtype=np.float32)
+
+                    self._state = np.concatenate(
+                        (b, d, rsc, np.array([self._sfc_bw[self._vnf_index]], dtype=np.float32),
+                         np.array([self._vnf_detail[self._vnf_proc]['cpu']], dtype=np.float32),
+                         np.array([self._sfc_delay], dtype=np.float32),
+                         np.array([self._state[-3]-1.0], dtype=np.float32),
+                         np.array([self._state[-2]], dtype=np.float32),
+                         np.array([self._state[-1]], dtype=np.float32)
+                         ), dtype=np.float32)
 
                     return ts.transition(self._state, reward=0.0, discount=discount)
 
@@ -254,12 +260,22 @@ class NFVEnv(py_environment.PyEnvironment):
 
                         self.network_matrix.generate(self.network)
 
-                        self._state[0] = self.network_matrix.get_edge_att('remain_bandwidth')
-                        self._state[2] = np.array([self.network_matrix.get_node_atts('cpu')]) * (
-                            np.array([np.linspace(1, 1, self._node_num)]).T)
-                        self._state[5] = self._sfc_delay * np.ones([self._node_num, self._node_num])
-                        self._state[6] -= 1.0
+                        b = np.array([], dtype=np.float32)
+                        for i in range(self._node_num - 1):
+                            b = np.append(b, self.network_matrix.get_edge_att('remain_bandwidth')[i][i + 1:])
+                        d = np.array([], dtype=np.float32)
+                        for i in range(self._node_num - 1):
+                            d = np.append(d, self.network_matrix.get_edge_att('delay')[i][i + 1:])
+                        rsc = np.array(self.network_matrix.get_node_atts('cpu'), dtype=np.float32)
 
+                        self._state = np.concatenate(
+                            (b, d, rsc, np.array([self._state[-6]], dtype=np.float32),
+                             np.array([self._state[-5]], dtype=np.float32),
+                             np.array([self._sfc_delay], dtype=np.float32),
+                             np.array([self._state[-3] - 1.0], dtype=np.float32),
+                             np.array([self._state[-2]], dtype=np.float32),
+                             np.array([self._state[-1]], dtype=np.float32)
+                             ), dtype=np.float32)
                         self._sfc_index += 1
 
                         # ending this episode
@@ -274,7 +290,7 @@ if __name__ == '__main__':
     collect_steps_per_iteration = 1  # @param {type:"integer"}
     replay_buffer_max_length = 100000  # @param {type:"integer"}
 
-    batch_size = 64  # @param {type:"integer"}
+    batch_size = 16  # @param {type:"integer"}
     learning_rate = 1e-3  # @param {type:"number"}
     log_interval = 200  # @param {type:"integer"}
 
@@ -355,5 +371,6 @@ if __name__ == '__main__':
 
     compute_avg_return(eval_env, random_policy, num_eval_episodes)
 
-
+    # environment = NFVEnv()
+    # utils.validate_py_environment(environment, episodes=5)
 
