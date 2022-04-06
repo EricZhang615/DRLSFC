@@ -33,6 +33,7 @@ from tf_agents.policies import greedy_policy
 from tf_agents.environments import wrappers
 from tf_agents.environments import suite_gym
 from tf_agents.trajectories import time_step as ts
+from tf_agents.replay_buffers import tf_uniform_replay_buffer
 
 discount = 1.0
 
@@ -100,6 +101,7 @@ class NFVEnv(py_environment.PyEnvironment):
         if self._sfc_index == (self.network.sfcs.get_number()-1):
             # 全部sfc部署完成 清空网络开始下一组
             print('finished, clearing')
+            self.scheduler.show()
             self.network = sfcsim.cernnet2()
             self.scheduler = sfcsim.scheduler()
             self.network_matrix = sfcsim.network_matrix()
@@ -284,11 +286,15 @@ class NFVEnv(py_environment.PyEnvironment):
 
 
 if __name__ == '__main__':
+
+    # environment = NFVEnv()
+    # utils.validate_py_environment(environment, episodes=5)
+
     num_iterations = 20000  # @param {type:"integer"}
 
-    initial_collect_steps = 100  # @param {type:"integer"}
+    initial_collect_steps = 1000  # @param {type:"integer"}
     collect_steps_per_iteration = 1  # @param {type:"integer"}
-    replay_buffer_max_length = 100000  # @param {type:"integer"}
+    replay_buffer_max_length = 1000  # @param {type:"integer"}
 
     batch_size = 16  # @param {type:"integer"}
     learning_rate = 1e-3  # @param {type:"number"}
@@ -344,10 +350,34 @@ if __name__ == '__main__':
 
     agent.initialize()
 
+    replay_buffer = tf_uniform_replay_buffer.TFUniformReplayBuffer(
+        agent.collect_data_spec,
+        batch_size=train_env.batch_size,
+        max_length=replay_buffer_max_length)
+
+    # Add an observer that adds to the replay buffer:
+    replay_observer = [replay_buffer.add_batch]
+
+    random_policy = random_tf_policy.RandomTFPolicy(train_env.time_step_spec(), train_env.action_spec())
+
+    initial_collect_op = dynamic_step_driver.DynamicStepDriver(
+        train_env,
+        random_policy,
+        observers=replay_observer,
+        num_steps=collect_steps_per_iteration)
+
+    # initial collect data
+    time_step = train_env.reset()
+    step = 0
+    while step < initial_collect_steps or not time_step.is_last():
+        step += 1
+        time_step, _ = initial_collect_op.run(time_step)
+
+    print(replay_buffer.num_frames())
+
+
     eval_policy = agent.policy
     collect_policy = agent.collect_policy
-    random_policy = random_tf_policy.RandomTFPolicy(train_env.time_step_spec(),
-                                                    train_env.action_spec())
 
     def compute_avg_return(environment, policy, num_episodes=10):
 
@@ -366,11 +396,6 @@ if __name__ == '__main__':
         avg_return = total_return / num_episodes
         return avg_return.numpy()[0]
 
-    # See also the metrics module for standard implementations of different metrics.
-    # https://github.com/tensorflow/agents/tree/master/tf_agents/metrics
+    # compute_avg_return(eval_env, random_policy, num_eval_episodes)
 
-    compute_avg_return(eval_env, random_policy, num_eval_episodes)
-
-    # environment = NFVEnv()
-    # utils.validate_py_environment(environment, episodes=5)
 
