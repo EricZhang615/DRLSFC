@@ -29,18 +29,15 @@ from tf_agents.policies import tf_policy
 from tf_agents.policies import random_tf_policy
 from tf_agents.policies import actor_policy
 from tf_agents.policies import q_policy
-from tf_agents.policies import greedy_policy
+from tf_agents.policies import epsilon_greedy_policy
 from tf_agents.environments import wrappers
 from tf_agents.environments import suite_gym
 from tf_agents.trajectories import time_step as ts
 from tf_agents.replay_buffers import tf_uniform_replay_buffer
 
-discount = 1.0
 
 fail_reward = -1
 success_reward = 1
-
-batch_size = 64
 
 
 class NFVEnv(py_environment.PyEnvironment):
@@ -97,11 +94,11 @@ class NFVEnv(py_environment.PyEnvironment):
     def observation_spec(self):
         return self._observation_spec
 
-    def _reset(self):
-        if self._sfc_index == (self.network.sfcs.get_number()-1):
+    def _reset(self, full_reset=False):
+        if self._sfc_index == (self.network.sfcs.get_number()-1) or full_reset == True:
             # 全部sfc部署完成 清空网络开始下一组
             print('finished, clearing')
-            self.scheduler.show()
+            # self.scheduler.show()
             self.network = sfcsim.cernnet2()
             self.scheduler = sfcsim.scheduler()
             self.network_matrix = sfcsim.network_matrix()
@@ -237,7 +234,7 @@ class NFVEnv(py_environment.PyEnvironment):
                          np.array([self._state[-1]], dtype=np.float32)
                          ), dtype=np.float32)
 
-                    return ts.transition(self._state, reward=0.0, discount=discount)
+                    return ts.transition(self._state, reward=0.0)
 
                 else:
                     # last vnf, deploy the last link
@@ -290,7 +287,7 @@ if __name__ == '__main__':
     # environment = NFVEnv()
     # utils.validate_py_environment(environment, episodes=5)
 
-    num_iterations = 20000  # @param {type:"integer"}
+    num_episodes = 20000  # @param {type:"integer"}
 
     initial_collect_steps = 1000  # @param {type:"integer"}
     collect_steps_per_iteration = 1  # @param {type:"integer"}
@@ -298,10 +295,18 @@ if __name__ == '__main__':
 
     batch_size = 16  # @param {type:"integer"}
     learning_rate = 1e-3  # @param {type:"number"}
-    log_interval = 200  # @param {type:"integer"}
+    epsilon = 0.1
+    target_update_tau = 0.5
+    target_update_period = 100
+    discount_gamma = 0.85
+
+    num_parallel_calls = 8
+    num_prefetch = 4
 
     num_eval_episodes = 10  # @param {type:"integer"}
     eval_interval = 1000  # @param {type:"integer"}
+    log_interval = 200  # @param {type:"integer"}
+
 
     train_py_env = NFVEnv()
     eval_py_env = NFVEnv()
@@ -345,10 +350,15 @@ if __name__ == '__main__':
         train_env.action_spec(),
         q_network=q_net,
         optimizer=optimizer,
+        target_update_tau=target_update_tau,
+        target_update_period=target_update_period,
+        gamma=discount_gamma,
         td_errors_loss_fn=common.element_wise_squared_loss,
         train_step_counter=train_step_counter)
 
     agent.initialize()
+
+    # replay buffer
 
     replay_buffer = tf_uniform_replay_buffer.TFUniformReplayBuffer(
         agent.collect_data_spec,
@@ -357,14 +367,13 @@ if __name__ == '__main__':
 
     # Add an observer that adds to the replay buffer:
     replay_observer = [replay_buffer.add_batch]
-
     random_policy = random_tf_policy.RandomTFPolicy(train_env.time_step_spec(), train_env.action_spec())
-
     initial_collect_op = dynamic_step_driver.DynamicStepDriver(
         train_env,
         random_policy,
         observers=replay_observer,
-        num_steps=collect_steps_per_iteration)
+        num_steps=collect_steps_per_iteration
+    )
 
     # initial collect data
     time_step = train_env.reset()
@@ -372,12 +381,45 @@ if __name__ == '__main__':
     while step < initial_collect_steps or not time_step.is_last():
         step += 1
         time_step, _ = initial_collect_op.run(time_step)
+    # print(replay_buffer.num_frames())
+    dataset = replay_buffer.as_dataset(
+        num_parallel_calls=num_parallel_calls,
+        sample_batch_size=batch_size,
+        num_steps=2
+    ).prefetch(num_prefetch)
+    iterator = iter(dataset)
 
-    print(replay_buffer.num_frames())
+
+    # train driver
+    train_policy = epsilon_greedy_policy.EpsilonGreedyPolicy(agent.policy, epsilon=epsilon)
+    train_driver = dynamic_step_driver.DynamicStepDriver(
+        train_env,
+        train_policy,
+        observers=replay_observer,
+        num_steps=collect_steps_per_iteration
+    )
 
 
-    eval_policy = agent.policy
-    collect_policy = agent.collect_policy
+    # main training loop
+    for episode in range(1, num_episodes):
+
+        total_loss = 0
+        step = 0
+        episode_reward = 0
+        time_step = train_env.reset()
+        while not time_step.is_last():
+            # Collect a few steps and save to the replay buffer.
+            time_step, _ = train_driver.run(time_step)
+            # Sample a batch of data from the buffer and update the agent's network.
+            experience, unused_info = next(iterator)
+            train_loss = agent.train(experience).loss
+            total_loss += train_loss
+            episode_reward = time_step.reward.numpy()[0]
+            step += 1
+
+        if episode % log_interval == 0:
+            print('Episode {}, last episode reward: {}, loss: {}'.format(episode, episode_reward, total_loss/step))
+
 
     def compute_avg_return(environment, policy, num_episodes=10):
 
