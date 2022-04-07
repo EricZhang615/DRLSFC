@@ -37,16 +37,17 @@ from tf_agents.trajectories import time_step as ts
 from tf_agents.replay_buffers import tf_uniform_replay_buffer
 
 
-fail_reward = -0.5
+fail_reward = -0.2
 success_reward = 1
 scheduler_log = False
 
 
 class NFVEnv(py_environment.PyEnvironment):
 
-    def __init__(self):
+    def __init__(self, num_sfc=100):
         super().__init__()
-        self.network = sfcsim.cernnet2()
+        self._num_sfc = num_sfc
+        self.network = sfcsim.cernnet2_train(num_sfc=num_sfc)
         self.scheduler = sfcsim.scheduler(log=scheduler_log)
         self.network_matrix = sfcsim.network_matrix()
         self._node_num = self.network.get_number()
@@ -102,7 +103,7 @@ class NFVEnv(py_environment.PyEnvironment):
             # 全部sfc部署完成 清空网络开始下一组
             print('Deployed {} / {}, clearing'.format(self._sfc_deployed, self.network.sfcs.get_number()))
             # self.scheduler.show()
-            self.network = sfcsim.cernnet2()
+            self.network = sfcsim.cernnet2_train(num_sfc=self._num_sfc)
             self.scheduler = sfcsim.scheduler(log=scheduler_log)
             self.network_matrix = sfcsim.network_matrix()
             self._node_num = self.network.get_number()
@@ -292,23 +293,23 @@ if __name__ == '__main__':
     # environment = NFVEnv()
     # utils.validate_py_environment(environment, episodes=5)
 
-    num_episodes = 2000  # @param {type:"integer"}
-    num_itr_per_episode = 46
+    num_episodes = 100  # @param {type:"integer"}
+    num_itr_per_episode = 200
 
-    initial_collect_steps = 2000  # @param {type:"integer"}
+    initial_collect_steps = 1000  # @param {type:"integer"}
     collect_steps_per_iteration = 1  # @param {type:"integer"}
-    replay_buffer_max_length = 2000  # @param {type:"integer"}
+    replay_buffer_max_length = 1000  # @param {type:"integer"}
 
-    batch_size = 128  # @param {type:"integer"}
-    shuffle = 64
+    batch_size = 64  # @param {type:"integer"}
+    shuffle = 32
     learning_rate = 0.0005  # @param {type:"number"}
     epsilon = 0.1
     target_update_tau = 0.95
-    target_update_period = 400
-    discount_gamma = 0.99
+    target_update_period = 500
+    discount_gamma = 0.9
 
     num_parallel_calls = 8
-    num_prefetch = 128
+    num_prefetch = batch_size
 
     num_eval_episodes = 10  # @param {type:"integer"}
     eval_interval = 1000  # @param {type:"integer"}
@@ -317,13 +318,15 @@ if __name__ == '__main__':
     checkpoint_dir = os.path.join('checkpoint', 'checkpoint')
     policy_dir = os.path.join('models', 'policy')
 
-    train_py_env = NFVEnv()
-    eval_py_env = NFVEnv()
+    train_py_env = NFVEnv(num_itr_per_episode)
+    eval_py_env = NFVEnv(num_itr_per_episode)
+    init_py_env = NFVEnv(num_itr_per_episode)
 
     train_env = tf_py_environment.TFPyEnvironment(train_py_env)
     eval_env = tf_py_environment.TFPyEnvironment(eval_py_env)
+    init_env = tf_py_environment.TFPyEnvironment(init_py_env)
 
-    fc_layer_params = (128, 64)
+    fc_layer_params = (512, 128, 64)
     action_tensor_spec = tensor_spec.from_spec(train_env.action_spec())
     num_actions = action_tensor_spec.maximum - action_tensor_spec.minimum + 1
 
@@ -376,16 +379,16 @@ if __name__ == '__main__':
 
     # Add an observer that adds to the replay buffer:
     replay_observer = [replay_buffer.add_batch]
-    random_policy = random_tf_policy.RandomTFPolicy(train_env.time_step_spec(), train_env.action_spec())
+    random_policy = random_tf_policy.RandomTFPolicy(init_env.time_step_spec(), init_env.action_spec())
     initial_collect_op = dynamic_step_driver.DynamicStepDriver(
-        train_env,
+        init_env,
         random_policy,
         observers=replay_observer,
         num_steps=collect_steps_per_iteration
     )
 
     # initial collect data
-    time_step = train_env.reset()
+    time_step = init_env.reset()
     step = 0
     while step < initial_collect_steps or not time_step.is_last():
         step += 1
