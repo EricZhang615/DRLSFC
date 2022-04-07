@@ -3,6 +3,8 @@ from __future__ import division
 from __future__ import print_function
 
 import abc
+import os
+
 import tensorflow as tf
 import tensorflow_probability as tfp
 import networkx as nx
@@ -27,17 +29,17 @@ from tf_agents.policies import scripted_py_policy
 
 from tf_agents.policies import tf_policy
 from tf_agents.policies import random_tf_policy
-from tf_agents.policies import actor_policy
-from tf_agents.policies import q_policy
 from tf_agents.policies import epsilon_greedy_policy
+from tf_agents.policies import policy_saver
 from tf_agents.environments import wrappers
 from tf_agents.environments import suite_gym
 from tf_agents.trajectories import time_step as ts
 from tf_agents.replay_buffers import tf_uniform_replay_buffer
 
 
-fail_reward = -1
+fail_reward = -0.5
 success_reward = 1
+scheduler_log = False
 
 
 class NFVEnv(py_environment.PyEnvironment):
@@ -45,7 +47,7 @@ class NFVEnv(py_environment.PyEnvironment):
     def __init__(self):
         super().__init__()
         self.network = sfcsim.cernnet2()
-        self.scheduler = sfcsim.scheduler()
+        self.scheduler = sfcsim.scheduler(log=scheduler_log)
         self.network_matrix = sfcsim.network_matrix()
         self._node_num = self.network.get_number()
         self._node_resource_attr_num = 1
@@ -59,6 +61,7 @@ class NFVEnv(py_environment.PyEnvironment):
         self._vnf_detail = self._sfc_proc.get_nfs_detail()      # next vnf attr
         self._sfc_bw = self._sfc_proc.get_bandwidths()
         self._sfc_delay = self._sfc_proc.get_delay()        # remaining delay of sfc
+        self._sfc_deployed = 0
 
         self._node_last = None
         self._node_proc = None
@@ -97,10 +100,10 @@ class NFVEnv(py_environment.PyEnvironment):
     def _reset(self, full_reset=False):
         if self._sfc_index == (self.network.sfcs.get_number()-1) or full_reset == True:
             # 全部sfc部署完成 清空网络开始下一组
-            print('finished, clearing')
+            print('Deployed {} / {}, clearing'.format(self._sfc_deployed, self.network.sfcs.get_number()))
             # self.scheduler.show()
             self.network = sfcsim.cernnet2()
-            self.scheduler = sfcsim.scheduler()
+            self.scheduler = sfcsim.scheduler(log=scheduler_log)
             self.network_matrix = sfcsim.network_matrix()
             self._node_num = self.network.get_number()
             self._node_resource_attr_num = 1
@@ -114,6 +117,7 @@ class NFVEnv(py_environment.PyEnvironment):
             self._vnf_detail = self._sfc_proc.get_nfs_detail()  # next vnf attr
             self._sfc_bw = self._sfc_proc.get_bandwidths()
             self._sfc_delay = self._sfc_proc.get_delay()  # remaining delay of sfc
+            self._sfc_deployed = 0
 
             self.network_matrix.generate(self.network)
             b = np.array([], dtype=np.float32)
@@ -276,10 +280,11 @@ class NFVEnv(py_environment.PyEnvironment):
                              np.array([self._state[-1]], dtype=np.float32)
                              ), dtype=np.float32)
                         self._sfc_index += 1
+                        self._sfc_deployed += 1
 
                         # ending this episode
                         self._episode_ended = True
-                        return ts.termination(self._state, reward=success_reward)
+                        return ts.termination(self._state, reward=success_reward * (1 + self._sfc_deployed/self.network.sfcs.get_number()))
 
 
 if __name__ == '__main__':
@@ -287,26 +292,30 @@ if __name__ == '__main__':
     # environment = NFVEnv()
     # utils.validate_py_environment(environment, episodes=5)
 
-    num_episodes = 20000  # @param {type:"integer"}
+    num_episodes = 2000  # @param {type:"integer"}
+    num_itr_per_episode = 46
 
-    initial_collect_steps = 1000  # @param {type:"integer"}
+    initial_collect_steps = 2000  # @param {type:"integer"}
     collect_steps_per_iteration = 1  # @param {type:"integer"}
-    replay_buffer_max_length = 1000  # @param {type:"integer"}
+    replay_buffer_max_length = 2000  # @param {type:"integer"}
 
-    batch_size = 16  # @param {type:"integer"}
-    learning_rate = 1e-3  # @param {type:"number"}
+    batch_size = 128  # @param {type:"integer"}
+    shuffle = 64
+    learning_rate = 0.0005  # @param {type:"number"}
     epsilon = 0.1
-    target_update_tau = 0.5
-    target_update_period = 100
-    discount_gamma = 0.85
+    target_update_tau = 0.95
+    target_update_period = 400
+    discount_gamma = 0.99
 
     num_parallel_calls = 8
-    num_prefetch = 4
+    num_prefetch = 128
 
     num_eval_episodes = 10  # @param {type:"integer"}
     eval_interval = 1000  # @param {type:"integer"}
-    log_interval = 200  # @param {type:"integer"}
+    log_interval = 1  # @param {type:"integer"}
 
+    checkpoint_dir = os.path.join('checkpoint', 'checkpoint')
+    policy_dir = os.path.join('models', 'policy')
 
     train_py_env = NFVEnv()
     eval_py_env = NFVEnv()
@@ -314,7 +323,7 @@ if __name__ == '__main__':
     train_env = tf_py_environment.TFPyEnvironment(train_py_env)
     eval_env = tf_py_environment.TFPyEnvironment(eval_py_env)
 
-    fc_layer_params = (100, 50)
+    fc_layer_params = (128, 64)
     action_tensor_spec = tensor_spec.from_spec(train_env.action_spec())
     num_actions = action_tensor_spec.maximum - action_tensor_spec.minimum + 1
 
@@ -343,7 +352,7 @@ if __name__ == '__main__':
 
     optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
 
-    train_step_counter = tf.Variable(0)
+    train_step_counter = tf.compat.v1.train.get_or_create_global_step()
 
     agent = dqn_agent.DqnAgent(
         train_env.time_step_spec(),
@@ -386,7 +395,7 @@ if __name__ == '__main__':
         num_parallel_calls=num_parallel_calls,
         sample_batch_size=batch_size,
         num_steps=2
-    ).prefetch(num_prefetch)
+    ).shuffle(shuffle).prefetch(num_prefetch)
     iterator = iter(dataset)
 
 
@@ -399,27 +408,47 @@ if __name__ == '__main__':
         num_steps=collect_steps_per_iteration
     )
 
+    train_checkpoint = common.Checkpointer(
+        ckpt_dir=checkpoint_dir,
+        max_to_keep=1,
+        agent=agent,
+        policy=agent.policy,
+        replay_buffer=replay_buffer,
+        global_step=train_step_counter
+    )
 
+    train_policy_saver = policy_saver.PolicySaver(agent.policy)
+
+    train_checkpoint.initialize_or_restore()
+
+    total_step = 0
     # main training loop
-    for episode in range(1, num_episodes):
-
+    for episode in range(num_episodes):
         total_loss = 0
+        total_reward = 0
         step = 0
-        episode_reward = 0
-        time_step = train_env.reset()
-        while not time_step.is_last():
-            # Collect a few steps and save to the replay buffer.
-            time_step, _ = train_driver.run(time_step)
-            # Sample a batch of data from the buffer and update the agent's network.
-            experience, unused_info = next(iterator)
-            train_loss = agent.train(experience).loss
-            total_loss += train_loss
-            episode_reward = time_step.reward.numpy()[0]
-            step += 1
+        for itr in range(num_itr_per_episode):
+
+            time_step = train_env.reset()
+
+            while not time_step.is_last():
+                # Collect a few steps and save to the replay buffer.
+                time_step, _ = train_driver.run(time_step)
+                # Sample a batch of data from the buffer and update the agent's network.
+                experience, unused_info = next(iterator)
+                train_loss = agent.train(experience).loss
+                total_loss += train_loss
+                total_reward += time_step.reward.numpy()[0]
+                step += 1
+                total_step += 1
+
+        # save this episode's data
+        train_checkpoint.save(train_step_counter)
 
         if episode % log_interval == 0:
-            print('Episode {}, last episode reward: {}, loss: {}'.format(episode, episode_reward, total_loss/step))
+            print('Episode {}, Total step {}, episode total reward: {}, loss: {}'.format(episode, total_step, total_reward, total_loss / step))
 
+    train_policy_saver.save(policy_dir)
 
     def compute_avg_return(environment, policy, num_episodes=10):
 
