@@ -9,7 +9,10 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import networkx as nx
 import numpy as np
+import tf_agents.metrics.tf_metrics
+
 import sfcsim
+from datetime import datetime
 
 from tf_agents.environments import py_environment
 from tf_agents.environments import tf_environment
@@ -35,9 +38,11 @@ from tf_agents.environments import wrappers
 from tf_agents.environments import suite_gym
 from tf_agents.trajectories import time_step as ts
 from tf_agents.replay_buffers import tf_uniform_replay_buffer
+from tf_agents.metrics import tf_metric
+from tf_agents.metrics import tf_metrics
 
 
-fail_reward = -0.2
+fail_reward = -0.5
 success_reward = 1
 scheduler_log = False
 
@@ -46,6 +51,8 @@ class NFVEnv(py_environment.PyEnvironment):
 
     def __init__(self, num_sfc=100):
         super().__init__()
+        self._dep_fin = False
+        self._dep_percent = 0.0
         self._num_sfc = num_sfc
         self.network = sfcsim.cernnet2_train(num_sfc=num_sfc)
         self.scheduler = sfcsim.scheduler(log=scheduler_log)
@@ -99,9 +106,11 @@ class NFVEnv(py_environment.PyEnvironment):
         return self._observation_spec
 
     def _reset(self, full_reset=False):
-        if self._sfc_index == (self.network.sfcs.get_number()-1) or full_reset == True:
+        if self._sfc_index == (self.network.sfcs.get_number()) or full_reset == True:
             # 全部sfc部署完成 清空网络开始下一组
             print('Deployed {} / {}, clearing'.format(self._sfc_deployed, self.network.sfcs.get_number()))
+            self._dep_fin = True
+            self._dep_percent = self._sfc_deployed / self.network.sfcs.get_number()
             # self.scheduler.show()
             self.network = sfcsim.cernnet2_train(num_sfc=self._num_sfc)
             self.scheduler = sfcsim.scheduler(log=scheduler_log)
@@ -180,6 +189,9 @@ class NFVEnv(py_environment.PyEnvironment):
         if self._episode_ended:
             return self.reset()
 
+        if self._dep_fin:
+            self._dep_fin = False
+
         self.network_matrix.generate(self.network)
 
         if self._vnf_index == 0:
@@ -201,7 +213,7 @@ class NFVEnv(py_environment.PyEnvironment):
 
             # ending this episode
             self._episode_ended = True
-            return ts.termination(self._state, reward=fail_reward)
+            return ts.termination(self._state, reward=fail_reward * (1-(self._sfc_index+1)/self.network.sfcs.get_number()))
         else:
             if not self.scheduler.deploy_link(self._sfc_proc, self._vnf_index + 1, self.network, path):
                 # link deploy failed
@@ -211,7 +223,7 @@ class NFVEnv(py_environment.PyEnvironment):
 
                 # ending this episode
                 self._episode_ended = True
-                return ts.termination(self._state, reward=fail_reward)
+                return ts.termination(self._state, reward=fail_reward * (1-(self._sfc_index+1)/self.network.sfcs.get_number()))
             else:
                 # nf link deploy success
                 if self._vnf_index < len(self._vnf_list) - 1:
@@ -258,7 +270,7 @@ class NFVEnv(py_environment.PyEnvironment):
 
                         # ending this episode
                         self._episode_ended = True
-                        return ts.termination(self._state, reward=fail_reward)
+                        return ts.termination(self._state, reward=fail_reward * (1-(self._sfc_index+1)/self.network.sfcs.get_number()))
                     else:
                         # sfc deploy success
 
@@ -285,8 +297,13 @@ class NFVEnv(py_environment.PyEnvironment):
 
                         # ending this episode
                         self._episode_ended = True
-                        return ts.termination(self._state, reward=success_reward * (1 + self._sfc_deployed/self.network.sfcs.get_number()))
+                        return ts.termination(self._state, reward=success_reward * (self._sfc_deployed/self.network.sfcs.get_number()))
 
+    def get_info(self):
+        return {
+            'dep_fin': self._dep_fin,
+            'dep_percent': self._dep_percent
+        }
 
 if __name__ == '__main__':
 
@@ -296,7 +313,7 @@ if __name__ == '__main__':
     num_episodes = 100  # @param {type:"integer"}
     num_itr_per_episode = 200
 
-    initial_collect_steps = 1000  # @param {type:"integer"}
+    initial_collect_steps = 200  # @param {type:"integer"}
     collect_steps_per_iteration = 1  # @param {type:"integer"}
     replay_buffer_max_length = 1000  # @param {type:"integer"}
 
@@ -315,8 +332,9 @@ if __name__ == '__main__':
     eval_interval = 1000  # @param {type:"integer"}
     log_interval = 1  # @param {type:"integer"}
 
-    checkpoint_dir = os.path.join('checkpoint', 'checkpoint')
-    policy_dir = os.path.join('models', 'policy')
+    checkpoint_dir = os.path.join('checkpoint/'+datetime.now().strftime("%Y%m%d-%H%M%S"), 'checkpoint')
+    policy_dir = os.path.join('models/'+datetime.now().strftime("%Y%m%d-%H%M%S"), 'policy')
+    log_dir = os.path.join('data/log', datetime.now().strftime("%Y%m%d-%H%M%S"))
 
     train_py_env = NFVEnv(num_itr_per_episode)
     eval_py_env = NFVEnv(num_itr_per_episode)
@@ -326,9 +344,12 @@ if __name__ == '__main__':
     eval_env = tf_py_environment.TFPyEnvironment(eval_py_env)
     init_env = tf_py_environment.TFPyEnvironment(init_py_env)
 
-    fc_layer_params = (512, 128, 64)
+    fc_layer_params = (512, 256, 128)
     action_tensor_spec = tensor_spec.from_spec(train_env.action_spec())
     num_actions = action_tensor_spec.maximum - action_tensor_spec.minimum + 1
+
+    train_summary_writer = tf.summary.create_file_writer(log_dir, flush_millis=10000)
+    train_summary_writer.set_as_default()
 
 
     # Define a helper function to create Dense layers configured with the right
@@ -362,7 +383,7 @@ if __name__ == '__main__':
         train_env.action_spec(),
         q_network=q_net,
         optimizer=optimizer,
-        target_update_tau=target_update_tau,
+        # target_update_tau=target_update_tau,
         target_update_period=target_update_period,
         gamma=discount_gamma,
         td_errors_loss_fn=common.element_wise_squared_loss,
@@ -432,7 +453,7 @@ if __name__ == '__main__':
         step = 0
         for itr in range(num_itr_per_episode):
 
-            time_step = train_env.reset()
+            time_step = train_env.current_time_step()
 
             while not time_step.is_last():
                 # Collect a few steps and save to the replay buffer.
@@ -445,11 +466,17 @@ if __name__ == '__main__':
                 step += 1
                 total_step += 1
 
+            train_env.reset()
+            if train_env.pyenv.get_info()['dep_fin'][0]:
+                break
+
         # save this episode's data
         train_checkpoint.save(train_step_counter)
 
         if episode % log_interval == 0:
             print('Episode {}, Total step {}, episode total reward: {}, loss: {}'.format(episode, total_step, total_reward, total_loss / step))
+            tf.summary.scalar('episode total reward', total_reward, step=train_step_counter)
+            tf.summary.scalar('episode deployed percent', train_env.pyenv.get_info()['dep_percent'][0], step=train_step_counter)
 
     train_policy_saver.save(policy_dir)
 
