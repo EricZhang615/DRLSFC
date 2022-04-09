@@ -58,12 +58,54 @@ class cernnet2_train(network):
                         ,vnf_type(name='type6',atts={'cpu':0},ratio=1,resource_coefficient={'cpu':1.2})\
                         ,vnf_type(name='type7',atts={'cpu':0},ratio=0.8,resource_coefficient={'cpu':1.2})\
                         ,vnf_type(name='type8',atts={'cpu':0},ratio=1,resource_coefficient={'cpu':2})])
-        vnf_list = ['type1','type2','type3','type4','type5','type6','type7','type8']
+        vnf_list = ['type2','type4','type6','type8']
+        in_node_list = ['node20', 'node7', 'node1', 'node4', 'node20', 'node21', 'node20', 'node19', 'node12', 'node20',
+                        'node3', 'node8', 'node18', 'node14', 'node5', 'node5', 'node16', 'node3', 'node3', 'node10',
+                        'node15', 'node17', 'node6', 'node6', 'node21', 'node20', 'node17', 'node13', 'node9', 'node12',
+                        'node8', 'node1', 'node13', 'node20', 'node13', 'node15', 'node8', 'node9', 'node2', 'node16',
+                        'node20', 'node21', 'node20', 'node5', 'node15', 'node8', 'node14', 'node7', 'node3', 'node6',
+                        'node11', 'node17', 'node19', 'node2', 'node6', 'node9', 'node6', 'node9', 'node13', 'node2',
+                        'node3', 'node8', 'node18', 'node14', 'node5', 'node5', 'node16', 'node3', 'node3', 'node10',
+                        'node11', 'node17', 'node19', 'node2', 'node6', 'node9', 'node6', 'node9', 'node13', 'node2',
+                        'node12', 'node4', 'node3', 'node1', 'node2', 'node1', 'node13', 'node11', 'node15', 'node15',
+                        'node15', 'node12', 'node13', 'node5', 'node7', 'node13', 'node5', 'node13', 'node15', 'node20',
+                        'node8', 'node9', 'node9', 'node19', 'node21', 'node15', 'node6', 'node11', 'node19', 'node17',
+                        'node11', 'node17', 'node19', 'node2', 'node6', 'node9', 'node6', 'node9', 'node13', 'node2',
+                        'node20', 'node7', 'node1', 'node4', 'node20', 'node21', 'node20', 'node19', 'node12', 'node20',
+                        'node15', 'node17', 'node6', 'node6', 'node21', 'node20', 'node17', 'node13', 'node9', 'node12',
+                        'node20', 'node21', 'node20', 'node5', 'node15', 'node8', 'node14', 'node7', 'node3', 'node6',
+                        'node13', 'node1', 'node20', 'node18', 'node11', 'node19', 'node17', 'node21', 'node9',
+                        'node20', 'node21', 'node20', 'node5', 'node15', 'node8', 'node14', 'node7', 'node3', 'node6',
+                        'node12', 'node4', 'node3', 'node1', 'node2', 'node1', 'node13', 'node11', 'node15', 'node15',
+                        'node8', 'node9', 'node9', 'node19', 'node21', 'node15', 'node6', 'node11', 'node19', 'node17',
+                        'node3', 'node8', 'node18', 'node14', 'node5', 'node5', 'node16', 'node3', 'node3', 'node10',
+                        'node16']
+        out_node_list = ['node16', 'node5', 'node5', 'node10', 'node18', 'node8', 'node18', 'node5', 'node16', 'node5',
+                         'node21', 'node9', 'node14', 'node19', 'node20', 'node8', 'node9', 'node13', 'node10', 'node6',
+                         'node15', 'node13', 'node5', 'node1', 'node1', 'node1', 'node3', 'node15', 'node3', 'node1',
+                         'node15', 'node3', 'node6', 'node21', 'node14', 'node19', 'node9', 'node17', 'node14', 'node3',
+                         'node12', 'node8', 'node5', 'node10', 'node10', 'node7', 'node19', 'node3', 'node21', 'node7',
+                         'node14', 'node17', 'node17', 'node10', 'node18', 'node21', 'node12', 'node21', 'node18',
+                         'node15', 'node3', 'node6', 'node21', 'node14', 'node19', 'node9', 'node17', 'node14', 'node3',
+                         'node16', 'node11', 'node5', 'node18', 'node15', 'node11', 'node9', 'node20', 'node12',
+                         'node8', 'node5', 'node10', 'node10', 'node7', 'node19', 'node3', 'node21', 'node7', 'node1',
+                         'node21', 'node9', 'node14', 'node19', 'node20', 'node8', 'node9', 'node13', 'node10', 'node6',
+                         'node16', 'node5', 'node5', 'node10', 'node18', 'node8', 'node18', 'node5', 'node16', 'node5',
+                         'node2', 'node15', 'node13', 'node5', 'node1', 'node1', 'node1', 'node3', 'node15', 'node3', 'node1',
+                         'node11', 'node21', 'node15', 'node10', 'node13', 'node9', 'node2', 'node2', 'node6', 'node17',
+                         'node4', 'node11', 'node8', 'node13', 'node9', 'node7', 'node7', 'node4', 'node1', 'node20',
+                         'node11', 'node21', 'node15', 'node10', 'node13', 'node9', 'node2', 'node2', 'node6', 'node17',
+                         'node3', 'node19', 'node9', 'node4', 'node6', 'node3', 'node15', 'node6', 'node15', 'node2',
+                         'node15', 'node13', 'node5', 'node1', 'node1', 'node1', 'node3', 'node15', 'node3', 'node1',
+                         'node15', 'node3', 'node6', 'node21', 'node14', 'node19', 'node9', 'node17', 'node14', 'node3',
+                         'node3', 'node19', 'node9', 'node4', 'node6', 'node3', 'node15', 'node6', 'node15', 'node2',
+                         'node15', 'node13', 'node5', 'node1', 'node1', 'node1', 'node3', 'node15', 'node3', 'node1',
+                         'node17', 'node8']
         sfc_list = []
         for i in range(1, num_sfc+1):
-            length = random.randint(3,5)
-            s = sfc('sfc'+str(i),choice(server_nodes).get_id(),choice(server_nodes).get_id(),[choice(vnf_list) for _ in range(length)],
-                    round(random.uniform(0.1,0.5),2),round(random.uniform(5.0,10.0),2),0,0,self.vnf_types)
+            # length = random.randint(3,5)
+            s = sfc('sfc'+str(i),in_node_list[i-1],out_node_list[i-1],vnf_list,
+                    0.5,5.0,0,0,self.vnf_types)
             sfc_list.append(s)
         self.sfcs=sfcs(sfc_list)
         self.figure=''

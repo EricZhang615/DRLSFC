@@ -214,7 +214,7 @@ class PSO_scheduler(dynamic_scheduler):
 
     def deploy_sfcs(self,sfcs,network,vnf_types,n=1):      
         # print('***********开始初始化粒子,总 %s 个***********' %(self.pN))
-        start = time.clock()
+        start = time.perf_counter()
         self.init_particle(network,sfcs,vnf_types,n)
         count=0
         # for i in range(100):
@@ -234,11 +234,11 @@ class PSO_scheduler(dynamic_scheduler):
             if count==1000:
                 break
             else:
-                end = time.clock()
+                end = time.perf_counter()
                 print('time=>',end-start,'s','max grade=>',self.g_fit[-1])
         print('***********迭代已完成***********')
         #—————最终部署按gbest部署sfcs——————
-        end = time.clock()
+        end = time.perf_counter()
         print('time=>',end-start,'s',self.g_fit)
 
 

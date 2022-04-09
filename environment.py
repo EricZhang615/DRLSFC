@@ -43,14 +43,16 @@ from tf_agents.metrics import tf_metrics
 
 
 fail_reward = -0.5
-success_reward = 1
+success_reward = 1.5
+delay_reward_discount = 0.5
+
 scheduler_log = False
 max_network_bw = 10.0
 max_network_delay = 2.0
 max_network_cpu = 10.0
-max_nf_bw = 0.5*1.5*5  # max bw*ratio*num
-max_nf_cpu = 3.75*2     # max nf_bw*rec_coef
-max_nf_delay = 10.0
+max_nf_bw = 0.5*0.8*1.5  # max bw*ratio*num
+max_nf_cpu = max_nf_bw*2     # max nf_bw*rec_coef
+max_nf_delay = 5.0
 
 
 
@@ -314,7 +316,7 @@ class NFVEnv(py_environment.PyEnvironment):
 
                         # ending this episode
                         self._episode_ended = True
-                        return ts.termination(self._state, reward=success_reward * (self._sfc_deployed/self.network.sfcs.get_number()))
+                        return ts.termination(self._state, reward=success_reward * (self._sfc_deployed/self.network.sfcs.get_number()) - delay_reward_discount*(1-self._sfc_delay))
 
     def get_info(self):
         return {
@@ -330,9 +332,9 @@ if __name__ == '__main__':
     num_episodes = 100  # @param {type:"integer"}
     num_itr_per_episode = 200
 
-    initial_collect_steps = 1000  # @param {type:"integer"}
+    initial_collect_steps = 500  # @param {type:"integer"}
     collect_steps_per_iteration = 1  # @param {type:"integer"}
-    replay_buffer_max_length = 5000  # @param {type:"integer"}
+    replay_buffer_max_length = 30000  # @param {type:"integer"}
 
     batch_size = 64  # @param {type:"integer"}
     shuffle = 32
