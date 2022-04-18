@@ -184,7 +184,7 @@ class TS_scheduler(dynamic_scheduler):
 
     #主函数
     def deploy_sfcs(self,network,sfcs,vnf_types,init_record):  
-        start = time.clock()
+        start = time.perf_counter()
         self.init(init_record,network,sfcs)
         for i in range(self.iteraction_count):
             if self.single_search(network,sfcs,vnf_types)==True:  #进行一轮搜索
@@ -192,12 +192,12 @@ class TS_scheduler(dynamic_scheduler):
             else:
                 count=count+1
             self.grade_list.append(self.max_grade)
-            end = time.clock()
+            end = time.perf_counter()
             print('time=>',end-start,'s','max grade=>',self.max_grade)
             if(count>self.stop_condition):
                 print("迭代%d次为发现更优解，迭代停止"%(self.stop_condition))
                 break
-        end = time.clock()
+        end = time.perf_counter()
         print('execution time=>',end-start,'s')
         print('optimal solution=>',self.max_grade,'  =>',self.global_max_deploy_record)
 

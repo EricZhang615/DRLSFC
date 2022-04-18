@@ -203,7 +203,7 @@ class SA_scheduler(dynamic_scheduler):
 
 
     def deploy_sfcs(self,network,sfcs,vnf_types,init_record):#参数：scheduler1是定义的最短路径调度器，sfcs1是网络所有SFC集合,network是当前网络
-        start = time.clock()
+        start = time.perf_counter()
         self.init(init_record,network,sfcs)
         k=0#k是降温函数的参数
         count=0#降温次数
@@ -220,10 +220,10 @@ class SA_scheduler(dynamic_scheduler):
             tmp=self.cool_temperature(k)#降温
             tmps.append(tmp)
             count+=1#降温次数
-            end = time.clock()
+            end = time.perf_counter()
             print('time=>',end-start,'s',"降温次数=>",count,"温度=>",tmp)
 
-        end = time.clock()
+        end = time.perf_counter()
         print('execution time=>',end-start,'s',"温度",tmp)
         print('optimal solution=>',self.max_grade,'  =>',self.global_max_deploy_record)
 
