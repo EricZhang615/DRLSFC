@@ -111,13 +111,16 @@ optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
 
 train_step_counter = tf.compat.v1.train.get_or_create_global_step()
 
+def observation_action_splitter(obs):
+    return obs['observation'], obs['valid_actions']
+
 agent = dqn_agent.DqnAgent(
     train_env.time_step_spec(),
     train_env.action_spec(),
     q_network=q_net,
     optimizer=optimizer,
     # target_update_tau=target_update_tau,
-    emit_log_probability=True,
+    observation_and_action_constraint_splitter=observation_action_splitter,
     target_update_period=target_update_period,
     gamma=discount_gamma,
     td_errors_loss_fn=common.element_wise_squared_loss,
@@ -134,7 +137,11 @@ replay_buffer = tf_uniform_replay_buffer.TFUniformReplayBuffer(
 
 # Add an observer that adds to the replay buffer:
 replay_observer = [replay_buffer.add_batch]
-random_policy = random_tf_policy.RandomTFPolicy(init_env.time_step_spec(), init_env.action_spec())
+random_policy = random_tf_policy.RandomTFPolicy(
+    init_env.time_step_spec(),
+    init_env.action_spec(),
+    observation_and_action_constraint_splitter=observation_action_splitter
+)
 initial_collect_op = dynamic_step_driver.DynamicStepDriver(
     init_env,
     random_policy,

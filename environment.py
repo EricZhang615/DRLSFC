@@ -13,6 +13,7 @@ import tf_agents.metrics.tf_metrics
 
 import sfcsim
 from datetime import datetime
+from copy import deepcopy
 
 from tf_agents.environments import py_environment
 from tf_agents.environments import tf_environment
@@ -88,9 +89,19 @@ class NFVEnv(py_environment.PyEnvironment):
         self._action_spec = array_spec.BoundedArraySpec(
             shape=(), dtype=np.int32, minimum=0, maximum=self._node_num-1, name='action'
         )
-        self._observation_spec = array_spec.BoundedArraySpec(
-            shape=(self._node_num * self._node_num + 2*self._node_num + 4, ), dtype=np.float32, minimum=0.0, name='observation'
-        )
+        self._observation_spec = {
+            'observation': array_spec.BoundedArraySpec(
+                shape=(self._node_num * self._node_num + 2 * self._node_num + 4,),
+                dtype=np.float32,
+                minimum=0.0,
+                name='observation'
+            ),
+            'valid_actions': array_spec.ArraySpec(
+                shape=(self._node_num,),
+                dtype=np.bool_,
+                name='valid_actions'
+            )
+        }
 
         self.network_matrix.generate(self.network)
         b = np.array([], dtype=np.float32)
@@ -105,13 +116,18 @@ class NFVEnv(py_environment.PyEnvironment):
         out_node = np.zeros(self._node_num, dtype=np.float32)
         out_node[self.network_matrix.get_node_list().index(self._sfc_out_node)] = 1.0
 
-        self._state = np.concatenate((b, d, rsc, np.array([self._sfc_bw[self._vnf_index]/max_nf_bw], dtype=np.float32),
-                                      np.array([self._vnf_detail[self._vnf_proc]['cpu']/max_nf_cpu], dtype=np.float32),
-                                      np.array([self._sfc_delay/max_nf_delay], dtype=np.float32),
-                                      np.array([1.0], dtype=np.float32),
-                                      in_node,
-                                      out_node
-                                      ), dtype=np.float32)
+        obs = {
+            'observation': np.concatenate(
+            (b, d, rsc, np.array([self._sfc_bw[self._vnf_index] / max_nf_bw], dtype=np.float32),
+             np.array([self._vnf_detail[self._vnf_proc]['cpu'] / max_nf_cpu], dtype=np.float32),
+             np.array([self._sfc_delay / max_nf_delay], dtype=np.float32),
+             np.array([1.0], dtype=np.float32),
+             in_node,
+             out_node
+             ), dtype=np.float32),
+            'valid_actions': self.get_valid_actions()
+        }
+        self._state = obs
         self._episode_ended = False
 
     def action_spec(self):
@@ -159,14 +175,18 @@ class NFVEnv(py_environment.PyEnvironment):
             out_node = np.zeros(self._node_num, dtype=np.float32)
             out_node[self.network_matrix.get_node_list().index(self._sfc_out_node)] = 1.0
 
-            self._state = np.concatenate(
+            obs = {
+                'observation': np.concatenate(
                 (b, d, rsc, np.array([self._sfc_bw[self._vnf_index] / max_nf_bw], dtype=np.float32),
                  np.array([self._vnf_detail[self._vnf_proc]['cpu'] / max_nf_cpu], dtype=np.float32),
                  np.array([self._sfc_delay / max_nf_delay], dtype=np.float32),
                  np.array([1.0], dtype=np.float32),
                  in_node,
                  out_node
-                 ), dtype=np.float32)
+                 ), dtype=np.float32),
+                'valid_actions': self.get_valid_actions()
+            }
+            self._state = obs
             self._episode_ended = False
             return ts.restart(self._state)
         else:
@@ -195,15 +215,18 @@ class NFVEnv(py_environment.PyEnvironment):
             out_node = np.zeros(self._node_num, dtype=np.float32)
             out_node[self.network_matrix.get_node_list().index(self._sfc_out_node)] = 1.0
 
-            self._state = np.concatenate(
+            obs = {
+                'observation': np.concatenate(
                 (b, d, rsc, np.array([self._sfc_bw[self._vnf_index] / max_nf_bw], dtype=np.float32),
                  np.array([self._vnf_detail[self._vnf_proc]['cpu'] / max_nf_cpu], dtype=np.float32),
                  np.array([self._sfc_delay / max_nf_delay], dtype=np.float32),
                  np.array([1.0], dtype=np.float32),
                  in_node,
                  out_node
-                 ), dtype=np.float32)
-
+                 ), dtype=np.float32),
+                'valid_actions': self.get_valid_actions()
+            }
+            self._state = obs
             self._episode_ended = False
             return ts.restart(self._state)
 
@@ -268,14 +291,18 @@ class NFVEnv(py_environment.PyEnvironment):
                         d = np.append(d, (self.network_matrix.get_edge_att('delay')[i][i + 1:]) / max_network_delay)
                     rsc = np.array((self.network_matrix.get_node_atts('cpu')), dtype=np.float32) / max_network_cpu
 
-                    self._state = np.concatenate(
+                    obs = {
+                        'observation': np.concatenate(
                         (b, d, rsc, np.array([self._sfc_bw[self._vnf_index] / max_nf_bw], dtype=np.float32),
                          np.array([self._vnf_detail[self._vnf_proc]['cpu'] / max_nf_cpu], dtype=np.float32),
                          np.array([self._sfc_delay], dtype=np.float32),
-                         np.array([self._state[-(2*self._node_num+1)]-(1.0/len(self._vnf_list))], dtype=np.float32),
-                         self._state[-(2*self._node_num):]
-                         ), dtype=np.float32)
-
+                         np.array([self._state['observation'][-(2 * self._node_num + 1)] - (1.0 / len(self._vnf_list))],
+                                  dtype=np.float32),
+                         self._state['observation'][-(2 * self._node_num):]
+                         ), dtype=np.float32),
+                        'valid_actions': self.get_valid_actions()
+                    }
+                    self._state = obs
                     return ts.transition(self._state, reward=0.0)
 
                 else:
@@ -311,13 +338,17 @@ class NFVEnv(py_environment.PyEnvironment):
                             d = np.append(d, (self.network_matrix.get_edge_att('delay')[i][i + 1:]) / max_network_delay)
                         rsc = np.array((self.network_matrix.get_node_atts('cpu')), dtype=np.float32) / max_network_cpu
 
-                        self._state = np.concatenate(
-                            (b, d, rsc, np.array([self._state[-6]], dtype=np.float32),
-                             np.array([self._state[-5]], dtype=np.float32),
+                        obs = {
+                            'observation': np.concatenate(
+                            (b, d, rsc, np.array([self._state['observation'][-6]], dtype=np.float32),
+                             np.array([self._state['observation'][-5]], dtype=np.float32),
                              np.array([self._sfc_delay], dtype=np.float32),
                              np.array([0.0], dtype=np.float32),
-                             self._state[-(2*self._node_num):]
-                             ), dtype=np.float32)
+                             self._state['observation'][-(2 * self._node_num):]
+                             ), dtype=np.float32),
+                            'valid_actions': self._state['valid_actions']
+                        }
+                        self._state = obs
                         self._sfc_index += 1
                         self._sfc_deployed += 1
                         self._dep_attempts += 1
@@ -331,6 +362,84 @@ class NFVEnv(py_environment.PyEnvironment):
             'dep_fin': self._dep_fin,
             'dep_percent': self._dep_percent
         }
+
+    def get_valid_actions(self):
+
+        valid_actions = np.full((self._node_num,), True, dtype=np.bool_)
+
+        net = deepcopy(self.network)
+        sch = deepcopy(self.scheduler)
+        net_matrix = sfcsim.network_matrix()
+        sfc_proc = net.sfcs.get_sfc(self._sfc_proc.get_id())
+
+        for action in range(self._node_num):
+
+            net_matrix.generate(net)
+
+            if self._vnf_index == 0:
+                # 是第一个vnf
+                node_last = net.get_node(self._sfc_in_node)
+            else:
+                node_last = net.get_node(self._node_proc.get_id())
+
+            node_proc = net.get_node(net_matrix.get_node_list()[action])
+
+            path = nx.shortest_path(net.G, source=node_last, target=node_proc, weight='delay')
+            delay = nx.shortest_path_length(net.G, source=node_last, target=node_proc, weight='delay')
+            sfc_delay = self._sfc_delay - (delay / max_nf_delay)
+            if sfc_delay < 0.0 or not sch.deploy_nf_scale_out(sfc_proc, node_proc, self._vnf_index + 1,
+                                                              sfc_proc.get_vnf_types()):
+                # nf deploy failed
+                # ending this attempt
+                valid_actions[action] = False
+
+            else:
+                if not sch.deploy_link(sfc_proc, self._vnf_index + 1, net, path):
+                    # link deploy failed
+                    sch.remove_nf(sfc_proc, self._vnf_index + 1)
+                    # ending this episode
+                    valid_actions[action] = False
+
+                else:
+                    # nf link deploy success
+                    if self._vnf_index < len(self._vnf_list) - 1:
+                        # not last vnf to deploy
+                        # remove nf and links
+                        sch.remove_link(sfc_proc, self._vnf_index + 1, net)
+                        sch.remove_nf(sfc_proc, self._vnf_index + 1)
+                        # ending this attempt
+                        valid_actions[action] = True
+
+                    else:
+                        # last vnf, deploy the last link
+                        node_last = node_proc
+                        node_proc = net.get_node(self._sfc_out_node)
+                        path = nx.shortest_path(net.G, source=node_last, target=node_proc, weight='delay')
+                        delay = nx.shortest_path_length(net.G, source=node_last, target=node_proc, weight='delay')
+                        sfc_delay -= (delay / max_nf_delay)
+                        if sfc_delay < 0.0 or not sch.deploy_link(sfc_proc, self._vnf_index + 2, net, path):
+                            # link deploy failed
+                            sch.remove_link(sfc_proc, self._vnf_index + 1, net)
+                            sch.remove_nf(sfc_proc, self._vnf_index + 1)
+                            # ending this episode
+                            valid_actions[action] = False
+
+                        else:
+                            # sfc deploy success
+                            # remove nf and links
+                            sch.remove_link(sfc_proc, self._vnf_index + 2, net)
+                            sch.remove_link(sfc_proc, self._vnf_index + 1, net)
+                            sch.remove_nf(sfc_proc, self._vnf_index + 1)
+                            # ending this episode
+                            valid_actions[action] = True
+
+        t = np.full((self._node_num,), False, dtype=np.bool_)
+        if (valid_actions == t).all():
+            valid_actions = np.full((self._node_num,), True, dtype=np.bool_)
+
+        del net, sch, sfc_proc
+
+        return valid_actions
 
 if __name__ == '__main__':
 
