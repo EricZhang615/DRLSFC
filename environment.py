@@ -3,7 +3,9 @@ from __future__ import division
 from __future__ import print_function
 
 import abc
+import ctypes
 import os
+import multiprocessing
 
 import tensorflow as tf
 import tensorflow_probability as tfp
@@ -365,81 +367,93 @@ class NFVEnv(py_environment.PyEnvironment):
 
     def get_valid_actions(self):
 
-        valid_actions = np.full((self._node_num,), True, dtype=np.bool_)
+        va = [False for _ in range(self._node_num)]
+        m = multiprocessing.Manager()
+        va = m.Array('B', va)
+        p = multiprocessing.Pool(8)
+        for action in range(self._node_num):
+            p.apply_async(self.verify_action, args=(action, va))
+
+        p.close()
+        p.join()
+
+        valid_actions = np.array(va, dtype=np.bool_)
+        t = np.full((self._node_num,), False, dtype=np.bool_)
+        if (valid_actions == t).all():
+            valid_actions = np.full((self._node_num,), True, dtype=np.bool_)
+
+        p.terminate()
+
+        return valid_actions
+
+
+    def verify_action(self, action, valid_actions=()):
 
         net = deepcopy(self.network)
         sch = deepcopy(self.scheduler)
         net_matrix = sfcsim.network_matrix()
         sfc_proc = net.sfcs.get_sfc(self._sfc_proc.get_id())
+        net_matrix.generate(net)
 
-        for action in range(self._node_num):
+        if self._vnf_index == 0:
+            # 是第一个vnf
+            node_last = net.get_node(self._sfc_in_node)
+        else:
+            node_last = net.get_node(self._node_proc.get_id())
 
-            net_matrix.generate(net)
+        node_proc = net.get_node(net_matrix.get_node_list()[action])
 
-            if self._vnf_index == 0:
-                # 是第一个vnf
-                node_last = net.get_node(self._sfc_in_node)
-            else:
-                node_last = net.get_node(self._node_proc.get_id())
+        path = nx.shortest_path(net.G, source=node_last, target=node_proc, weight='delay')
+        delay = nx.shortest_path_length(net.G, source=node_last, target=node_proc, weight='delay')
+        sfc_delay = self._sfc_delay - (delay / max_nf_delay)
+        if sfc_delay < 0.0 or not sch.deploy_nf_scale_out(sfc_proc, node_proc, self._vnf_index + 1,
+                                                          sfc_proc.get_vnf_types()):
+            # nf deploy failed
+            # ending this attempt
+            valid_actions[action] = False
 
-            node_proc = net.get_node(net_matrix.get_node_list()[action])
-
-            path = nx.shortest_path(net.G, source=node_last, target=node_proc, weight='delay')
-            delay = nx.shortest_path_length(net.G, source=node_last, target=node_proc, weight='delay')
-            sfc_delay = self._sfc_delay - (delay / max_nf_delay)
-            if sfc_delay < 0.0 or not sch.deploy_nf_scale_out(sfc_proc, node_proc, self._vnf_index + 1,
-                                                              sfc_proc.get_vnf_types()):
-                # nf deploy failed
-                # ending this attempt
+        else:
+            if not sch.deploy_link(sfc_proc, self._vnf_index + 1, net, path):
+                # link deploy failed
+                sch.remove_nf(sfc_proc, self._vnf_index + 1)
+                # ending this episode
                 valid_actions[action] = False
 
             else:
-                if not sch.deploy_link(sfc_proc, self._vnf_index + 1, net, path):
-                    # link deploy failed
+                # nf link deploy success
+                if self._vnf_index < len(self._vnf_list) - 1:
+                    # not last vnf to deploy
+                    # remove nf and links
+                    sch.remove_link(sfc_proc, self._vnf_index + 1, net)
                     sch.remove_nf(sfc_proc, self._vnf_index + 1)
-                    # ending this episode
-                    valid_actions[action] = False
+                    # ending this attempt
+                    valid_actions[action] = True
 
                 else:
-                    # nf link deploy success
-                    if self._vnf_index < len(self._vnf_list) - 1:
-                        # not last vnf to deploy
-                        # remove nf and links
+                    # last vnf, deploy the last link
+                    node_last = node_proc
+                    node_proc = net.get_node(self._sfc_out_node)
+                    path = nx.shortest_path(net.G, source=node_last, target=node_proc, weight='delay')
+                    delay = nx.shortest_path_length(net.G, source=node_last, target=node_proc, weight='delay')
+                    sfc_delay -= (delay / max_nf_delay)
+                    if sfc_delay < 0.0 or not sch.deploy_link(sfc_proc, self._vnf_index + 2, net, path):
+                        # link deploy failed
                         sch.remove_link(sfc_proc, self._vnf_index + 1, net)
                         sch.remove_nf(sfc_proc, self._vnf_index + 1)
-                        # ending this attempt
-                        valid_actions[action] = True
+                        # ending this episode
+                        valid_actions[action] = False
 
                     else:
-                        # last vnf, deploy the last link
-                        node_last = node_proc
-                        node_proc = net.get_node(self._sfc_out_node)
-                        path = nx.shortest_path(net.G, source=node_last, target=node_proc, weight='delay')
-                        delay = nx.shortest_path_length(net.G, source=node_last, target=node_proc, weight='delay')
-                        sfc_delay -= (delay / max_nf_delay)
-                        if sfc_delay < 0.0 or not sch.deploy_link(sfc_proc, self._vnf_index + 2, net, path):
-                            # link deploy failed
-                            sch.remove_link(sfc_proc, self._vnf_index + 1, net)
-                            sch.remove_nf(sfc_proc, self._vnf_index + 1)
-                            # ending this episode
-                            valid_actions[action] = False
+                        # sfc deploy success
+                        # remove nf and links
+                        sch.remove_link(sfc_proc, self._vnf_index + 2, net)
+                        sch.remove_link(sfc_proc, self._vnf_index + 1, net)
+                        sch.remove_nf(sfc_proc, self._vnf_index + 1)
+                        # ending this episode
+                        valid_actions[action] = True
 
-                        else:
-                            # sfc deploy success
-                            # remove nf and links
-                            sch.remove_link(sfc_proc, self._vnf_index + 2, net)
-                            sch.remove_link(sfc_proc, self._vnf_index + 1, net)
-                            sch.remove_nf(sfc_proc, self._vnf_index + 1)
-                            # ending this episode
-                            valid_actions[action] = True
-
-        t = np.full((self._node_num,), False, dtype=np.bool_)
-        if (valid_actions == t).all():
-            valid_actions = np.full((self._node_num,), True, dtype=np.bool_)
-
-        del net, sch, sfc_proc
-
-        return valid_actions
+        del net, sch
+        return 0
 
 if __name__ == '__main__':
 
