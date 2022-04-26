@@ -21,7 +21,7 @@ class cernnet2_train(network):
         cernnet.show()
         cernnet.draw()
     '''
-    def __init__(self, num_sfc=100):
+    def __init__(self, num_sfc=100, random_sfc_node=False):
         self.node1=node(uuid='node1',atts={'cpu':10,'access':False})
         self.node2=node(uuid='node2',atts={'cpu':10,'access':False})
         self.node3=node(uuid='node3',atts={'cpu':10,'access':False})
@@ -104,8 +104,12 @@ class cernnet2_train(network):
         sfc_list = []
         for i in range(1, num_sfc+1):
             # length = random.randint(3,5)
-            s = sfc('sfc'+str(i),in_node_list[i-1],out_node_list[i-1],vnf_list,
+            if random_sfc_node:
+                s = sfc('sfc'+str(i),choice(server_nodes).get_id(),choice(server_nodes).get_id(),vnf_list,
                     0.5,5.0,0,0,self.vnf_types)
+            else:
+                s = sfc('sfc'+str(i),in_node_list[i-1],out_node_list[i-1],vnf_list,
+                        0.5,5.0,0,0,self.vnf_types)
             sfc_list.append(s)
         self.sfcs=sfcs(sfc_list)
         self.figure=''

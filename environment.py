@@ -58,14 +58,15 @@ max_nf_delay = 5.0
 
 class NFVEnv(py_environment.PyEnvironment):
 
-    def __init__(self, num_sfc=100):
+    def __init__(self, num_sfc=100, random_sfc_node=False):
         super().__init__()
         self._dep_fin = False
         self._dep_percent = 0.0
         self._num_sfc = num_sfc
+        self._random_sfc_node = random_sfc_node
         self._dep_attempts = 0
-        # self.network = sfcsim.cernnet2_train(num_sfc=num_sfc)
-        self.network = sfcsim.cernnet2()
+        self.network = sfcsim.cernnet2_train(num_sfc=num_sfc, random_sfc_node=random_sfc_node)
+        # self.network = sfcsim.cernnet2()
         self.scheduler = sfcsim.scheduler(log=scheduler_log)
         self.network_matrix = sfcsim.network_matrix()
         self._node_num = self.network.get_number()
@@ -128,8 +129,8 @@ class NFVEnv(py_environment.PyEnvironment):
             self._dep_percent = self._sfc_deployed / self._num_sfc
             self._dep_attempts = 0
             # self.scheduler.show()
-            # self.network = sfcsim.cernnet2_train(num_sfc=self._num_sfc)
-            self.network = sfcsim.cernnet2()
+            self.network = sfcsim.cernnet2_train(num_sfc=self._num_sfc, random_sfc_node=self._random_sfc_node)
+            # self.network = sfcsim.cernnet2()
             self.scheduler = sfcsim.scheduler(log=scheduler_log)
             self.network_matrix = sfcsim.network_matrix()
             self._node_num = self.network.get_number()

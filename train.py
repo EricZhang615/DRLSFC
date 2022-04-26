@@ -44,7 +44,8 @@ from tf_agents.metrics import tf_metrics
 from environment import NFVEnv
 
 num_episodes = 150  # @param {type:"integer"}
-num_itr_per_episode = 46
+num_itr_per_episode = 200
+random_sfc_node = True
 
 initial_collect_steps = 500  # @param {type:"integer"}
 collect_steps_per_iteration = 1  # @param {type:"integer"}
@@ -62,16 +63,16 @@ num_parallel_calls = 8
 num_prefetch = batch_size
 
 num_eval_episodes = 10  # @param {type:"integer"}
-eval_interval = 1000  # @param {type:"integer"}
+eval_interval = 10  # @param {type:"integer"}
 log_interval = 1  # @param {type:"integer"}
 
 checkpoint_dir = os.path.join('checkpoint/' + datetime.now().strftime("%Y%m%d-%H%M%S"), 'checkpoint')
 policy_dir = os.path.join('models/' + datetime.now().strftime("%Y%m%d-%H%M%S"), 'policy')
 log_dir = os.path.join('data/log', datetime.now().strftime("%Y%m%d-%H%M%S"))
 
-train_py_env = NFVEnv(num_itr_per_episode)
-eval_py_env = NFVEnv(num_itr_per_episode)
-init_py_env = NFVEnv(num_itr_per_episode)
+train_py_env = NFVEnv(num_itr_per_episode, random_sfc_node)
+eval_py_env = NFVEnv(num_itr_per_episode, random_sfc_node)
+init_py_env = NFVEnv(num_itr_per_episode, random_sfc_node)
 
 train_env = tf_py_environment.TFPyEnvironment(train_py_env)
 eval_env = tf_py_environment.TFPyEnvironment(eval_py_env)
@@ -117,7 +118,7 @@ agent = dqn_agent.DqnAgent(
     q_network=q_net,
     optimizer=optimizer,
     # target_update_tau=target_update_tau,
-    emit_log_probability=True,
+    # emit_log_probability=True,
     target_update_period=target_update_period,
     gamma=discount_gamma,
     td_errors_loss_fn=common.element_wise_squared_loss,
@@ -178,6 +179,31 @@ train_policy_saver = policy_saver.PolicySaver(agent.policy)
 
 train_checkpoint.initialize_or_restore()
 
+
+def evaluate_policy(environment, policy, num=10):
+    total_return = 0.0
+    total_dep_percent = 0.0
+    for _ in range(num):
+        for i in range(num_itr_per_episode * 3):
+
+            eval_time_step = environment.current_time_step()
+
+            while not eval_time_step.is_last():
+                # Collect a few steps and save to the replay buffer.
+                action_step = policy.action(eval_time_step)
+                eval_time_step = environment.step(action_step.action)
+                total_return += eval_time_step.reward.numpy()[0]
+
+            environment.reset()
+            if environment.pyenv.get_info()['dep_fin'][0]:
+                break
+        total_dep_percent += environment.pyenv.get_info()['dep_percent'][0]
+
+    avg_return = total_return / num
+    avg_dep_percent = total_dep_percent / num
+
+    return avg_return, avg_dep_percent
+
 total_step = 0
 # main training loop
 for episode in range(num_episodes):
@@ -213,23 +239,14 @@ for episode in range(num_episodes):
         tf.summary.scalar('episode deployed percent', train_env.pyenv.get_info()['dep_percent'][0],
                           step=train_step_counter)
 
+    if episode % eval_interval == 0:
+        print('Start evaluating the policy...')
+        r = evaluate_policy(eval_env, agent.policy, 10)
+        print('Average reward: {}, Average deployed percent: {}'.format(r[0], r[1]))
+        tf.summary.scalar('evaluate average reward', r[0], step=train_step_counter)
+        tf.summary.scalar('evaluate average deployed percent', r[1], step=train_step_counter)
+
+
 train_policy_saver.save(policy_dir)
-
-
-def compute_avg_return(environment, policy, num_episodes=10):
-    total_return = 0.0
-    for _ in range(num_episodes):
-
-        time_step = environment.reset()
-        episode_return = 0.0
-
-        while not time_step.is_last():
-            action_step = policy.action(time_step)
-            time_step = environment.step(action_step.action)
-            episode_return += time_step.reward
-        total_return += episode_return
-
-    avg_return = total_return / num_episodes
-    return avg_return.numpy()[0]
 
 # compute_avg_return(eval_env, random_policy, num_eval_episodes)
