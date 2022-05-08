@@ -183,13 +183,13 @@ train_checkpoint.initialize_or_restore()
 def evaluate_policy(environment, policy, num=10):
     total_return = 0.0
     total_dep_percent = 0.0
+    total_delay = 0.0
     for _ in range(num):
         for i in range(num_itr_per_episode * 3):
 
             eval_time_step = environment.current_time_step()
 
             while not eval_time_step.is_last():
-                # Collect a few steps and save to the replay buffer.
                 action_step = policy.action(eval_time_step)
                 eval_time_step = environment.step(action_step.action)
                 total_return += eval_time_step.reward.numpy()[0]
@@ -198,11 +198,13 @@ def evaluate_policy(environment, policy, num=10):
             if environment.pyenv.get_info()['dep_fin'][0]:
                 break
         total_dep_percent += environment.pyenv.get_info()['dep_percent'][0]
+        total_delay += environment.pyenv.get_info()['total_delay'][0]
 
     avg_return = total_return / num
     avg_dep_percent = total_dep_percent / num
+    avg_delay = total_delay / num
 
-    return avg_return, avg_dep_percent
+    return avg_return, avg_dep_percent, avg_delay
 
 total_step = 0
 # main training loop
@@ -245,6 +247,7 @@ for episode in range(num_episodes):
         print('Average reward: {}, Average deployed percent: {}'.format(r[0], r[1]))
         tf.summary.scalar('evaluate average reward', r[0], step=train_step_counter)
         tf.summary.scalar('evaluate average deployed percent', r[1], step=train_step_counter)
+        tf.summary.scalar('evaluate average delay', r[2], step=train_step_counter)
 
 
 train_policy_saver.save(policy_dir)

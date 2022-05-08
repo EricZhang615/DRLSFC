@@ -82,6 +82,7 @@ class NFVEnv(py_environment.PyEnvironment):
         self._sfc_bw = self._sfc_proc.get_bandwidths()
         self._sfc_delay = self._sfc_proc.get_delay()        # remaining delay of sfc
         self._sfc_deployed = 0
+        self._sfc_total_delay = 0.0
 
         self._node_last = None
         self._node_proc = None
@@ -146,6 +147,7 @@ class NFVEnv(py_environment.PyEnvironment):
             self._sfc_bw = self._sfc_proc.get_bandwidths()
             self._sfc_delay = self._sfc_proc.get_delay()  # remaining delay of sfc
             self._sfc_deployed = 0
+            self._sfc_total_delay = 0.0
 
             self.network_matrix.generate(self.network)
             b = np.array([], dtype=np.float32)
@@ -325,12 +327,14 @@ class NFVEnv(py_environment.PyEnvironment):
 
                         # ending this episode
                         self._episode_ended = True
+                        self._sfc_total_delay += self._sfc_proc.get_delay()-(self._sfc_delay*max_nf_delay)
                         return ts.termination(self._state, reward=success_reward * (self._sfc_deployed/self._num_sfc) - delay_reward_discount*(1-self._sfc_delay))
 
     def get_info(self):
         return {
             'dep_fin': self._dep_fin,
-            'dep_percent': self._dep_percent
+            'dep_percent': self._dep_percent,
+            'total_delay': self._sfc_total_delay
         }
 
 if __name__ == '__main__':
