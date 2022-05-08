@@ -238,7 +238,7 @@ class NFVEnv(py_environment.PyEnvironment):
 
             # ending this episode
             self._episode_ended = True
-            return ts.termination(self._state, reward=fail_reward * (1-(self._sfc_index+1)/self._num_sfc))
+            return ts.termination(self._state, reward=fail_reward * (1-self._sfc_deployed/self._num_sfc))
         else:
             if not self.scheduler.deploy_link(self._sfc_proc, self._vnf_index + 1, self.network, path):
                 # link deploy failed
@@ -249,7 +249,7 @@ class NFVEnv(py_environment.PyEnvironment):
 
                 # ending this episode
                 self._episode_ended = True
-                return ts.termination(self._state, reward=fail_reward * (1-(self._sfc_index+1)/self._num_sfc))
+                return ts.termination(self._state, reward=fail_reward * (1-self._sfc_deployed/self._num_sfc))
             else:
                 # nf link deploy success
                 if self._vnf_index < len(self._vnf_list) - 1:
@@ -297,7 +297,7 @@ class NFVEnv(py_environment.PyEnvironment):
 
                         # ending this episode
                         self._episode_ended = True
-                        return ts.termination(self._state, reward=fail_reward * (1-(self._sfc_index+1)/self._num_sfc))
+                        return ts.termination(self._state, reward=fail_reward * (1-self._sfc_deployed/self._num_sfc))
                     else:
                         # sfc deploy success
 

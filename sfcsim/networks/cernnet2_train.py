@@ -3,7 +3,7 @@ from sfcsim.classes.sfc import *
 from sfcsim.layout.cernnet2_layout import *
 
 import random
-from random import choice
+from random import choice,sample
 class cernnet2_train(network):
     '''
     研究组实验室的开放挑战，挑战目标：在底层网络上部署文件中的sfc，算法执行时间短且总部署流量大者取胜
@@ -105,7 +105,8 @@ class cernnet2_train(network):
         for i in range(1, num_sfc+1):
             # length = random.randint(3,5)
             if random_sfc_node:
-                s = sfc('sfc'+str(i),choice(server_nodes).get_id(),choice(server_nodes).get_id(),vnf_list,
+                n = sample(server_nodes, 2)
+                s = sfc('sfc'+str(i),n[0].get_id(),n[1].get_id(),vnf_list,
                     0.5,5.0,0,0,self.vnf_types)
             else:
                 s = sfc('sfc'+str(i),in_node_list[i-1],out_node_list[i-1],vnf_list,

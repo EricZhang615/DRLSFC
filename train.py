@@ -43,20 +43,20 @@ from tf_agents.metrics import tf_metrics
 
 from environment import NFVEnv
 
-num_episodes = 150  # @param {type:"integer"}
+num_episodes = 250  # @param {type:"integer"}
 num_itr_per_episode = 200
 random_sfc_node = True
 
-initial_collect_steps = 500  # @param {type:"integer"}
+initial_collect_steps = 300000  # @param {type:"integer"}
 collect_steps_per_iteration = 1  # @param {type:"integer"}
-replay_buffer_max_length = 30000  # @param {type:"integer"}
+replay_buffer_max_length = 500000  # @param {type:"integer"}
 
-batch_size = 128  # @param {type:"integer"}
-shuffle = 64
+batch_size = 256  # @param {type:"integer"}
+shuffle = 128
 learning_rate = 0.001  # @param {type:"number"}
 epsilon = 0.1
 target_update_tau = 0.95
-target_update_period = 500
+target_update_period = 5000
 discount_gamma = 0.9
 
 num_parallel_calls = 8
